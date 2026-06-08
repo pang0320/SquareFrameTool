@@ -1,0 +1,8 @@
+Options -Indexes
+
+<FilesMatch "\.zip$">
+    ForceType application/zip
+    <IfModule mod_headers.c>
+        Header set Content-Disposition "attachment"
+    </IfModule>
+</FilesMatch>
