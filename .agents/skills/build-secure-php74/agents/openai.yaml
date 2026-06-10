@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Secure PHP 7.4"
+  short_description: "Build and review secure PHP 7.4 code"
+  default_prompt: "Use $build-secure-php74 to implement this PHP feature securely and verify the result."
