@@ -2,11 +2,23 @@
     'use strict';
 
     const MAX_FILE_SIZE_BYTES = 40 * 1024 * 1024;
+    const PREVIEW_MAX_SIZE = 720;
+    const PREVIEW_BATCH_SIZE = 4;
+    const IMAGE_DECODE_CONCURRENCY = 2;
+    const IMAGE_EXPORT_CONCURRENCY = 2;
     const ACCEPTED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
     const EXTENSIONS = {
         'image/png': 'png',
         'image/jpeg': 'jpg',
         'image/webp': 'webp',
+    };
+    const DEFAULT_SETTINGS = {
+        backgroundColor: '#ffffff',
+        padding: 0,
+        alignment: 'middle-center',
+        prefix: '',
+        suffix: '-1x1',
+        sort: 'added',
     };
 
     const state = {
@@ -14,6 +26,8 @@
         nextId: 1,
         manualDownloadUrl: '',
         noticeText: '',
+        rerenderTimer: null,
+        previewGeneration: 0,
     };
 
     const elements = {
@@ -30,6 +44,16 @@
         summaryText: document.getElementById('summaryText'),
         detailText: document.getElementById('detailText'),
         manualDownloadLink: document.getElementById('manualDownloadLink'),
+        backgroundColorInput: document.getElementById('backgroundColorInput'),
+        backgroundColorHexInput: document.getElementById('backgroundColorHexInput'),
+        paddingInput: document.getElementById('paddingInput'),
+        paddingOutput: document.getElementById('paddingOutput'),
+        filePrefixInput: document.getElementById('filePrefixInput'),
+        fileSuffixInput: document.getElementById('fileSuffixInput'),
+        sortSelect: document.getElementById('sortSelect'),
+        resetSettingsButton: document.getElementById('resetSettingsButton'),
+        alignmentInputs: Array.from(document.querySelectorAll('input[name="alignment"]')),
+        colorSwatches: Array.from(document.querySelectorAll('.color-swatch')),
     };
 
     const crcTable = buildCrcTable();
@@ -41,11 +65,47 @@
     });
     elements.clearAllButton.addEventListener('click', clearAll);
     elements.downloadAllButton.addEventListener('click', downloadAll);
-    elements.formatSelect.addEventListener('change', rerenderAll);
+    elements.formatSelect.addEventListener('change', () => {
+        updateQualityState();
+        refreshFileNames();
+    });
     elements.qualityInput.addEventListener('input', () => {
         elements.qualityOutput.textContent = `${Math.round(Number(elements.qualityInput.value) * 100)}%`;
     });
-    elements.qualityInput.addEventListener('change', rerenderAll);
+    elements.backgroundColorInput.addEventListener('input', () => {
+        setBackgroundColor(elements.backgroundColorInput.value);
+        scheduleRerender();
+    });
+    elements.backgroundColorHexInput.addEventListener('input', () => {
+        const color = normalizeHexColor(elements.backgroundColorHexInput.value);
+        elements.backgroundColorHexInput.classList.toggle('is-invalid', color === null);
+        if (color !== null) {
+            setBackgroundColor(color);
+            scheduleRerender();
+        }
+    });
+    elements.backgroundColorHexInput.addEventListener('change', () => {
+        const color = normalizeHexColor(elements.backgroundColorHexInput.value);
+        setBackgroundColor(color || getBackgroundColor());
+        if (state.items.length > 0) {
+            rerenderAll();
+        }
+    });
+    elements.paddingInput.addEventListener('input', () => {
+        elements.paddingOutput.textContent = `${getPadding()} px`;
+        scheduleRerender();
+    });
+    elements.alignmentInputs.forEach((input) => input.addEventListener('change', rerenderAll));
+    elements.colorSwatches.forEach((button) => {
+        button.addEventListener('click', () => {
+            setBackgroundColor(button.dataset.color);
+            rerenderAll();
+        });
+    });
+    elements.filePrefixInput.addEventListener('input', refreshFileNames);
+    elements.fileSuffixInput.addEventListener('input', refreshFileNames);
+    elements.sortSelect.addEventListener('change', sortItems);
+    elements.resetSettingsButton.addEventListener('click', resetSettings);
 
     ['dragenter', 'dragover'].forEach((eventName) => {
         elements.dropZone.addEventListener(eventName, (event) => {
@@ -81,10 +141,19 @@
         setBusy(true);
 
         try {
-            for (const file of validFiles) {
-                await addImage(file);
+            const decodedImages = await mapWithConcurrency(
+                validFiles,
+                IMAGE_DECODE_CONCURRENCY,
+                decodeImageFile
+            );
+
+            for (const decoded of decodedImages) {
+                if (decoded) {
+                    addImage(decoded.file, decoded.image, decoded.width, decoded.height);
+                }
             }
         } finally {
+            sortItems();
             setBusy(false);
             updateStatus();
         }
@@ -104,27 +173,76 @@
         return true;
     }
 
-    async function addImage(file) {
-        const image = await loadImage(file);
+    async function decodeImageFile(file) {
+        try {
+            const sourceImage = await loadImage(file);
+            const width = sourceImage.naturalWidth || sourceImage.width;
+            const height = sourceImage.naturalHeight || sourceImage.height;
+            const previewImage = await createPreviewImage(sourceImage, width, height);
+
+            if (previewImage !== sourceImage) {
+                releaseImage(sourceImage);
+            }
+
+            return {
+                file,
+                image: previewImage,
+                width,
+                height,
+            };
+        } catch (error) {
+            console.error(error);
+            alert(`ไม่สามารถอ่านไฟล์ "${file.name}" ได้`);
+            return null;
+        }
+    }
+
+    async function mapWithConcurrency(items, concurrency, worker) {
+        const results = new Array(items.length);
+        let nextIndex = 0;
+
+        async function runWorker() {
+            while (nextIndex < items.length) {
+                const index = nextIndex;
+                nextIndex += 1;
+                results[index] = await worker(items[index], index);
+            }
+        }
+
+        const workerCount = Math.min(concurrency, items.length);
+        await Promise.all(Array.from({ length: workerCount }, runWorker));
+        return results;
+    }
+
+    function addImage(file, image, width, height) {
         const item = {
             id: state.nextId,
             file,
             image,
-            width: image.naturalWidth,
-            height: image.naturalHeight,
-            outputSize: Math.max(image.naturalWidth, image.naturalHeight),
+            width,
+            height,
+            outputSize: Math.max(width, height),
+            rotation: 0,
             element: null,
             canvas: null,
-            lastBlob: null,
+            outputSizeElement: null,
             lastFileName: '',
         };
         state.nextId += 1;
         state.items.push(item);
         renderCard(item);
-        await renderOutput(item);
+        renderPreview(item);
     }
 
-    function loadImage(file) {
+    async function loadImage(file) {
+        if (typeof window.createImageBitmap === 'function') {
+            try {
+                return await window.createImageBitmap(file, { imageOrientation: 'from-image' });
+            } catch (error) {
+                console.warn('ImageBitmap decode failed; using image element fallback.', error);
+            }
+        }
+
         return new Promise((resolve, reject) => {
             const url = URL.createObjectURL(file);
             const image = new Image();
@@ -141,6 +259,37 @@
         });
     }
 
+    async function createPreviewImage(sourceImage, width, height) {
+        const scale = Math.min(1, PREVIEW_MAX_SIZE / Math.max(width, height));
+        if (scale === 1) {
+            return sourceImage;
+        }
+
+        const previewWidth = Math.max(1, Math.round(width * scale));
+        const previewHeight = Math.max(1, Math.round(height * scale));
+
+        if (typeof window.createImageBitmap === 'function') {
+            try {
+                return await window.createImageBitmap(sourceImage, {
+                    resizeWidth: previewWidth,
+                    resizeHeight: previewHeight,
+                    resizeQuality: 'high',
+                });
+            } catch (error) {
+                console.warn('Preview bitmap resize failed; using canvas fallback.', error);
+            }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = previewWidth;
+        canvas.height = previewHeight;
+        const context = canvas.getContext('2d', { alpha: false });
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+        context.drawImage(sourceImage, 0, 0, previewWidth, previewHeight);
+        return canvas;
+    }
+
     function renderCard(item) {
         const fragment = elements.template.content.cloneNode(true);
         const card = fragment.querySelector('.image-card');
@@ -150,6 +299,8 @@
         const outputSize = fragment.querySelector('.output-size');
         const downloadButton = fragment.querySelector('.download-one');
         const removeButton = fragment.querySelector('.remove-one');
+        const rotateLeftButton = fragment.querySelector('.rotate-left');
+        const rotateRightButton = fragment.querySelector('.rotate-right');
 
         name.textContent = item.file.name;
         name.title = item.file.name;
@@ -157,32 +308,116 @@
         outputSize.textContent = `${item.outputSize} x ${item.outputSize}px`;
         downloadButton.addEventListener('click', () => downloadOne(item));
         removeButton.addEventListener('click', () => removeItem(item.id));
+        rotateLeftButton.addEventListener('click', () => rotateItem(item, -90));
+        rotateRightButton.addEventListener('click', () => rotateItem(item, 90));
 
         item.element = card;
         item.canvas = canvas;
+        item.outputSizeElement = outputSize;
         elements.gallery.appendChild(fragment);
     }
 
-    async function renderOutput(item) {
+    function renderPreview(item) {
         const canvas = item.canvas;
-        const size = item.outputSize;
+        const padding = getPadding();
+        const dimensions = getRotatedDimensions(item);
+        const size = Math.max(dimensions.width, dimensions.height) + (padding * 2);
+        const position = calculateImagePosition(size, dimensions.width, dimensions.height, padding);
+        const scale = Math.min(1, PREVIEW_MAX_SIZE / size);
+        const previewSize = Math.max(1, Math.round(size * scale));
         const context = canvas.getContext('2d', { alpha: false });
 
+        item.outputSize = size;
+        canvas.width = previewSize;
+        canvas.height = previewSize;
+        context.setTransform(scale, 0, 0, scale, 0, 0);
+        context.imageSmoothingEnabled = scale < 1;
+        context.imageSmoothingQuality = 'high';
+        context.fillStyle = getBackgroundColor();
+        context.fillRect(0, 0, size, size);
+        drawRotatedImage(context, item, position.x, position.y, dimensions);
+
+        item.lastFileName = buildOutputName(item.file.name, getOutputType());
+        item.outputSizeElement.textContent = `${size} x ${size}px`;
+    }
+
+    async function createExportBlob(item) {
+        const padding = getPadding();
+        const dimensions = getRotatedDimensions(item);
+        const size = Math.max(dimensions.width, dimensions.height) + (padding * 2);
+        const position = calculateImagePosition(size, dimensions.width, dimensions.height, padding);
+        const canvas = createExportCanvas(size);
+        const context = canvas.getContext('2d', { alpha: false });
+        const sourceImage = await loadImage(item.file);
+
+        try {
+            context.imageSmoothingEnabled = false;
+            context.fillStyle = getBackgroundColor();
+            context.fillRect(0, 0, size, size);
+            drawRotatedImage(context, item, position.x, position.y, dimensions, sourceImage);
+            return await canvasToBlob(canvas, getOutputType(), getOutputQuality());
+        } finally {
+            releaseImage(sourceImage);
+            releaseCanvas(canvas);
+        }
+    }
+
+    function createExportCanvas(size) {
+        if (typeof window.OffscreenCanvas === 'function') {
+            return new OffscreenCanvas(size, size);
+        }
+
+        const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
-        context.imageSmoothingEnabled = false;
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, size, size);
-        context.drawImage(
-            item.image,
-            Math.floor((size - item.width) / 2),
-            Math.floor((size - item.height) / 2),
-            item.width,
-            item.height
-        );
+        return canvas;
+    }
 
-        item.lastBlob = await canvasToBlob(canvas, getOutputType(), getOutputQuality());
-        item.lastFileName = buildOutputName(item.file.name, getOutputType());
+    function releaseCanvas(canvas) {
+        if (canvas instanceof HTMLCanvasElement) {
+            canvas.width = 1;
+            canvas.height = 1;
+        }
+    }
+
+    function getRotatedDimensions(item) {
+        const quarterTurn = Math.abs(item.rotation % 180) === 90;
+        return {
+            width: quarterTurn ? item.height : item.width,
+            height: quarterTurn ? item.width : item.height,
+        };
+    }
+
+    function calculateImagePosition(size, width, height, padding) {
+        const alignment = getAlignment().split('-');
+        const verticalFactor = alignment[0] === 'top' ? 0 : (alignment[0] === 'bottom' ? 1 : 0.5);
+        const horizontalFactor = alignment[1] === 'left' ? 0 : (alignment[1] === 'right' ? 1 : 0.5);
+        const availableWidth = Math.max(0, size - (padding * 2) - width);
+        const availableHeight = Math.max(0, size - (padding * 2) - height);
+
+        return {
+            x: padding + Math.round(availableWidth * horizontalFactor),
+            y: padding + Math.round(availableHeight * verticalFactor),
+        };
+    }
+
+    function drawRotatedImage(context, item, x, y, dimensions, sourceImage = item.image) {
+        context.save();
+        context.translate(x, y);
+
+        if (item.rotation === 90) {
+            context.translate(dimensions.width, 0);
+            context.rotate(Math.PI / 2);
+        } else if (item.rotation === 180) {
+            context.translate(dimensions.width, dimensions.height);
+            context.rotate(Math.PI);
+        } else if (item.rotation === 270) {
+            context.translate(0, dimensions.height);
+            context.rotate(-Math.PI / 2);
+        }
+
+        context.drawImage(sourceImage, 0, 0, item.width, item.height);
+        context.restore();
     }
 
     async function rerenderAll() {
@@ -191,18 +426,48 @@
         }
 
         hideManualDownload();
-        setBusy(true);
-        try {
-            for (const item of state.items) {
-                await renderOutput(item);
+        const generation = state.previewGeneration + 1;
+        state.previewGeneration = generation;
+
+        for (let index = 0; index < state.items.length; index += 1) {
+            if (generation !== state.previewGeneration) {
+                return;
             }
-        } finally {
-            setBusy(false);
-            updateStatus();
+
+            renderPreview(state.items[index]);
+            if ((index + 1) % PREVIEW_BATCH_SIZE === 0) {
+                await nextAnimationFrame();
+            }
         }
+
+        updateStatus();
+    }
+
+    function scheduleRerender() {
+        window.clearTimeout(state.rerenderTimer);
+        state.rerenderTimer = window.setTimeout(rerenderAll, 120);
+    }
+
+    function nextAnimationFrame() {
+        return new Promise((resolve) => window.requestAnimationFrame(resolve));
+    }
+
+    async function rotateItem(item, amount) {
+        item.rotation = (item.rotation + amount + 360) % 360;
+        hideManualDownload();
+        try {
+            renderPreview(item);
+        } catch (error) {
+            handleDownloadError(error);
+        }
+        updateStatus();
     }
 
     function canvasToBlob(canvas, type, quality) {
+        if (typeof canvas.convertToBlob === 'function') {
+            return canvas.convertToBlob({ type, quality });
+        }
+
         return new Promise((resolve, reject) => {
             canvas.toBlob((blob) => {
                 if (!blob) {
@@ -222,16 +487,59 @@
         return Number(elements.qualityInput.value);
     }
 
+    function getBackgroundColor() {
+        return elements.backgroundColorInput.value || DEFAULT_SETTINGS.backgroundColor;
+    }
+
+    function normalizeHexColor(value) {
+        const normalized = String(value || '').trim();
+        const shortMatch = normalized.match(/^#?([\da-f]{3})$/i);
+        if (shortMatch) {
+            return `#${shortMatch[1].split('').map((character) => character.repeat(2)).join('')}`.toLowerCase();
+        }
+
+        const fullMatch = normalized.match(/^#?([\da-f]{6})$/i);
+        return fullMatch ? `#${fullMatch[1]}`.toLowerCase() : null;
+    }
+
+    function setBackgroundColor(color) {
+        const normalized = normalizeHexColor(color) || DEFAULT_SETTINGS.backgroundColor;
+        elements.backgroundColorInput.value = normalized;
+        elements.backgroundColorHexInput.value = normalized.toUpperCase();
+        elements.backgroundColorHexInput.classList.remove('is-invalid');
+        updateSelectedSwatch();
+    }
+
+    function getPadding() {
+        const padding = Number.parseInt(elements.paddingInput.value, 10);
+        return Number.isFinite(padding) ? Math.max(0, Math.min(500, padding)) : 0;
+    }
+
+    function getAlignment() {
+        const selected = elements.alignmentInputs.find((input) => input.checked);
+        return selected ? selected.value : DEFAULT_SETTINGS.alignment;
+    }
+
     function buildOutputName(originalName, mimeType) {
         const baseName = originalName.replace(/\.[^.]+$/, '') || 'image';
-        const safeName = baseName
-            .normalize('NFKD')
-            .replace(/[^\w.-]+/g, '-')
+        const safeBaseName = sanitizeFileNamePart(baseName) || 'image';
+        const prefix = sanitizeFileNamePart(elements.filePrefixInput.value);
+        const suffix = sanitizeFileNamePart(elements.fileSuffixInput.value);
+        const safeName = `${prefix}${safeBaseName}${suffix}`
             .replace(/-+/g, '-')
             .replace(/^-|-$/g, '')
-            .slice(0, 90) || 'image';
+            .slice(0, 120) || 'image';
 
-        return `${safeName}-1x1-white.${EXTENSIONS[mimeType]}`;
+        return `${safeName}.${EXTENSIONS[mimeType]}`;
+    }
+
+    function sanitizeFileNamePart(value) {
+        return value
+            .normalize('NFKD')
+            .replace(/[^\p{L}\p{N}._-]+/gu, '-')
+            .replace(/-+/g, '-')
+            .replace(/^\.+|\.+$/g, '')
+            .slice(0, 60);
     }
 
     async function downloadOne(item) {
@@ -244,11 +552,8 @@
                 return;
             }
 
-            if (!item.lastBlob) {
-                await renderOutput(item);
-            }
-
-            await saveBlob(item.lastBlob, fileName, saveHandle, false);
+            const blob = await createExportBlob(item);
+            await saveBlob(blob, fileName, saveHandle, false);
         } catch (error) {
             handleDownloadError(error);
         }
@@ -269,18 +574,27 @@
         hideManualDownload();
         setBusy(true);
         try {
-            const files = [];
             const nameCounts = new Map();
-
-            for (const item of state.items) {
-                if (!item.lastBlob) {
-                    await renderOutput(item);
+            let completedExports = 0;
+            const exportedItems = await mapWithConcurrency(
+                state.items,
+                IMAGE_EXPORT_CONCURRENCY,
+                async (item) => {
+                    const blob = await createExportBlob(item);
+                    completedExports += 1;
+                    elements.summaryText.textContent = `กำลังส่งออก ${completedExports}/${state.items.length} รูป`;
+                    return { item, blob };
                 }
+            );
+            const files = [];
 
-                const uniqueName = uniqueFileName(item.lastFileName, nameCounts);
+            for (const exported of exportedItems) {
+                const item = exported.item;
+                const currentFileName = buildOutputName(item.file.name, getOutputType());
+                const uniqueName = uniqueFileName(currentFileName, nameCounts);
                 files.push({
                     name: uniqueName,
-                    data: new Uint8Array(await item.lastBlob.arrayBuffer()),
+                    data: new Uint8Array(await exported.blob.arrayBuffer()),
                 });
             }
 
@@ -451,6 +765,55 @@
         elements.manualDownloadLink.removeAttribute('href');
     }
 
+    function refreshFileNames() {
+        hideManualDownload();
+        state.items.forEach((item) => {
+            item.lastFileName = buildOutputName(item.file.name, getOutputType());
+        });
+        updateStatus();
+    }
+
+    function updateSelectedSwatch() {
+        const color = getBackgroundColor().toLowerCase();
+        elements.colorSwatches.forEach((button) => {
+            button.classList.toggle('is-selected', button.dataset.color.toLowerCase() === color);
+        });
+    }
+
+    function updateQualityState() {
+        const isLosslessPng = getOutputType() === 'image/png';
+        elements.qualityInput.disabled = isLosslessPng;
+        elements.qualityInput.closest('.control').classList.toggle('is-disabled', isLosslessPng);
+    }
+
+    function sortItems() {
+        const sortMode = elements.sortSelect.value;
+        const comparators = {
+            added: (a, b) => a.id - b.id,
+            'name-asc': (a, b) => a.file.name.localeCompare(b.file.name, 'th'),
+            'name-desc': (a, b) => b.file.name.localeCompare(a.file.name, 'th'),
+            'size-desc': (a, b) => (b.width * b.height) - (a.width * a.height),
+            'size-asc': (a, b) => (a.width * a.height) - (b.width * b.height),
+        };
+
+        state.items.sort(comparators[sortMode] || comparators.added);
+        state.items.forEach((item) => elements.gallery.appendChild(item.element));
+    }
+
+    async function resetSettings() {
+        setBackgroundColor(DEFAULT_SETTINGS.backgroundColor);
+        elements.paddingInput.value = String(DEFAULT_SETTINGS.padding);
+        elements.paddingOutput.textContent = `${DEFAULT_SETTINGS.padding} px`;
+        elements.filePrefixInput.value = DEFAULT_SETTINGS.prefix;
+        elements.fileSuffixInput.value = DEFAULT_SETTINGS.suffix;
+        elements.sortSelect.value = DEFAULT_SETTINGS.sort;
+        elements.alignmentInputs.forEach((input) => {
+            input.checked = input.value === DEFAULT_SETTINGS.alignment;
+        });
+        sortItems();
+        await rerenderAll();
+    }
+
     function handleDownloadError(error) {
         console.error(error);
         alert('ไม่สามารถบันทึกไฟล์ได้ กรุณาลองใหม่อีกครั้ง');
@@ -463,16 +826,25 @@
         }
 
         const [item] = state.items.splice(index, 1);
+        releaseImage(item.image);
         item.element.remove();
         hideManualDownload();
         updateStatus();
     }
 
     function clearAll() {
+        state.previewGeneration += 1;
+        state.items.forEach((item) => releaseImage(item.image));
         state.items.splice(0, state.items.length);
         elements.gallery.textContent = '';
         hideManualDownload();
         updateStatus();
+    }
+
+    function releaseImage(image) {
+        if (image && typeof image.close === 'function') {
+            image.close();
+        }
     }
 
     function updateStatus() {
@@ -497,7 +869,13 @@
         elements.clearAllButton.disabled = isBusy || state.items.length === 0;
         elements.chooseFilesButton.disabled = isBusy;
         elements.formatSelect.disabled = isBusy;
-        elements.qualityInput.disabled = isBusy;
+        elements.qualityInput.disabled = isBusy || getOutputType() === 'image/png';
+        document.querySelectorAll('.settings-panel input, .settings-panel select, .settings-panel button').forEach((control) => {
+            control.disabled = isBusy;
+        });
+        document.querySelectorAll('.image-card button').forEach((button) => {
+            button.disabled = isBusy;
+        });
         elements.summaryText.textContent = isBusy ? 'กำลังประมวลผลรูป' : elements.summaryText.textContent;
     }
 
@@ -623,5 +1001,7 @@
         return output;
     }
 
+    updateSelectedSwatch();
+    updateQualityState();
     updateStatus();
 })();

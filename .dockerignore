@@ -1,0 +1,11 @@
+.git
+.gitignore
+.gitattributes
+.agents
+.env
+storage/*
+public/downloads/*
+!public/downloads/.htaccess
+how_to_run.md
+README.md
+LICENSE

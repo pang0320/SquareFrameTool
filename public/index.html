@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <meta name="csrf-token" content="">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="favicon.svg">
     <title>Square White Frame</title>
-    <link rel="stylesheet" href="assets/css/app.css">
+    <link rel="stylesheet" href="assets/css/app.css?v=20260615-4">
 </head>
 <body>
     <main class="app-shell" aria-labelledby="app-title">
@@ -48,6 +50,77 @@
                 <button class="button button-primary" type="button" id="downloadAllButton" disabled>ดาวน์โหลดทั้งหมดเป็น ZIP</button>
             </section>
 
+            <section class="settings-panel" aria-label="ตั้งค่ากรอบและชื่อไฟล์">
+                <div class="settings-row settings-visual">
+                    <div class="settings-row-title">รูปและกรอบ</div>
+                    <div class="setting-group">
+                        <span class="setting-label">สีพื้นหลัง</span>
+                        <div class="color-controls">
+                            <label class="custom-color-picker">
+                                <input class="color-picker" id="backgroundColorInput" type="color" value="#ffffff" aria-label="เปิดจานสีเพื่อเลือกสีพื้นหลัง">
+                                <span class="color-picker-rainbow" aria-hidden="true"></span>
+                                <span>เลือกสีเอง</span>
+                            </label>
+                            <label class="hex-color-field">
+                                <span class="sr-only">รหัสสีพื้นหลังแบบ HEX</span>
+                                <input id="backgroundColorHexInput" type="text" value="#FFFFFF" maxlength="7" inputmode="text" spellcheck="false" autocomplete="off" aria-label="รหัสสีพื้นหลังแบบ HEX">
+                            </label>
+                            <div class="color-presets" aria-label="สีแนะนำ">
+                                <button class="color-swatch is-selected" type="button" data-color="#ffffff" aria-label="สีขาว"></button>
+                                <button class="color-swatch" type="button" data-color="#f2f2f2" aria-label="สีเทาอ่อน"></button>
+                                <button class="color-swatch" type="button" data-color="#111111" aria-label="สีดำ"></button>
+                                <button class="color-swatch" type="button" data-color="#dff4ea" aria-label="สีเขียวอ่อน"></button>
+                                <button class="color-swatch" type="button" data-color="#ffe7ec" aria-label="สีชมพูอ่อน"></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <label class="setting-group setting-range">
+                        <span class="setting-label">ขอบเพิ่ม</span>
+                        <input id="paddingInput" type="range" min="0" max="500" step="10" value="0">
+                        <output id="paddingOutput">0 px</output>
+                    </label>
+
+                    <fieldset class="setting-group alignment-fieldset">
+                        <legend class="setting-label">ตำแหน่งภาพ</legend>
+                        <div class="alignment-grid">
+                            <label title="ซ้ายบน"><input type="radio" name="alignment" value="top-left"><span>↖</span></label>
+                            <label title="บนกลาง"><input type="radio" name="alignment" value="top-center"><span>↑</span></label>
+                            <label title="ขวาบน"><input type="radio" name="alignment" value="top-right"><span>↗</span></label>
+                            <label title="ซ้ายกลาง"><input type="radio" name="alignment" value="middle-left"><span>←</span></label>
+                            <label title="กึ่งกลาง"><input type="radio" name="alignment" value="middle-center" checked><span>●</span></label>
+                            <label title="ขวากลาง"><input type="radio" name="alignment" value="middle-right"><span>→</span></label>
+                            <label title="ซ้ายล่าง"><input type="radio" name="alignment" value="bottom-left"><span>↙</span></label>
+                            <label title="ล่างกลาง"><input type="radio" name="alignment" value="bottom-center"><span>↓</span></label>
+                            <label title="ขวาล่าง"><input type="radio" name="alignment" value="bottom-right"><span>↘</span></label>
+                        </div>
+                    </fieldset>
+                </div>
+
+                <div class="settings-row settings-files">
+                    <div class="settings-row-title">ชื่อไฟล์</div>
+                    <label class="setting-group">
+                        <span class="setting-label">คำหน้าชื่อไฟล์</span>
+                        <input class="text-input" id="filePrefixInput" type="text" maxlength="30" placeholder="เช่น square-">
+                    </label>
+                    <label class="setting-group">
+                        <span class="setting-label">คำท้ายชื่อไฟล์</span>
+                        <input class="text-input" id="fileSuffixInput" type="text" maxlength="30" value="-1x1">
+                    </label>
+                    <label class="setting-group">
+                        <span class="setting-label">เรียงรูป</span>
+                        <select id="sortSelect">
+                            <option value="added">ตามลำดับนำเข้า</option>
+                            <option value="name-asc">ชื่อตาม A-Z</option>
+                            <option value="name-desc">ชื่อตาม Z-A</option>
+                            <option value="size-desc">ขนาดใหญ่ก่อน</option>
+                            <option value="size-asc">ขนาดเล็กก่อน</option>
+                        </select>
+                    </label>
+                    <button class="button button-ghost reset-settings" type="button" id="resetSettingsButton">คืนค่าเริ่มต้น</button>
+                </div>
+            </section>
+
             <section class="status-panel" aria-live="polite">
                 <strong id="summaryText">ยังไม่มีรูปที่นำเข้า</strong>
                 <span id="detailText">ผลลัพธ์จะเป็นสี่เหลี่ยมจัตุรัส ขนาดเท่าด้านที่ยาวที่สุดของแต่ละรูป</span>
@@ -77,12 +150,14 @@
                 </dl>
             </div>
             <div class="card-actions">
+                <button class="button button-icon rotate-left" type="button" title="หมุนซ้าย" aria-label="หมุนรูปไปทางซ้าย">↺</button>
+                <button class="button button-icon rotate-right" type="button" title="หมุนขวา" aria-label="หมุนรูปไปทางขวา">↻</button>
                 <button class="button button-secondary download-one" type="button">ดาวน์โหลด</button>
                 <button class="button button-ghost remove-one" type="button" aria-label="ลบรูปนี้">ลบ</button>
             </div>
         </article>
     </template>
 
-    <script src="assets/js/app.js" defer></script>
+    <script src="assets/js/app.js?v=20260615-4" defer></script>
 </body>
 </html>
