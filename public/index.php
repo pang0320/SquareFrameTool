@@ -151,9 +151,72 @@ $jsVersion = substr(hash_file('sha256', __DIR__ . '/assets/js/app.js'), 0, 16);
                         </fieldset>
                     </section>
 
-                    <section class="setting-card setting-card-output" aria-labelledby="output-title">
+                    <section class="setting-card setting-card-watermark" aria-labelledby="watermark-title">
                         <div class="card-heading">
                             <span class="card-number">03</span>
+                            <div>
+                                <h3 id="watermark-title">ลายน้ำ</h3>
+                                <p>วางโลโก้หรือไฟล์ลายน้ำลงบนทุกภาพ</p>
+                            </div>
+                        </div>
+
+                        <input id="watermarkFileInput" class="file-input" type="file" accept="image/png,image/jpeg,image/webp">
+
+                        <div class="watermark-picker">
+                            <button class="button button-quiet watermark-choose" type="button" id="chooseWatermarkButton">เลือกลายน้ำ</button>
+                            <button class="button button-quiet watermark-remove" type="button" id="removeWatermarkButton" hidden>เอาออก</button>
+                        </div>
+
+                        <div class="watermark-preview" id="watermarkPreviewBox">
+                            <img id="watermarkPreviewImage" alt="ตัวอย่างลายน้ำ" hidden>
+                            <span id="watermarkStatus">ยังไม่ได้เลือกลายน้ำ</span>
+                        </div>
+
+                        <div class="watermark-controls">
+                            <label class="setting-group setting-range">
+                                <span class="setting-label">ความชัด</span>
+                                <div class="range-row compact-range">
+                                    <input id="watermarkOpacityInput" type="range" min="0.1" max="1" step="0.05" value="0.7">
+                                    <output id="watermarkOpacityOutput">70%</output>
+                                </div>
+                            </label>
+
+                            <label class="setting-group setting-range">
+                                <span class="setting-label">ขนาด</span>
+                                <div class="range-row compact-range">
+                                    <input id="watermarkSizeInput" type="range" min="5" max="45" step="1" value="18">
+                                    <output id="watermarkSizeOutput">18%</output>
+                                </div>
+                            </label>
+
+                            <label class="setting-group setting-range">
+                                <span class="setting-label">ระยะขอบ</span>
+                                <div class="range-row compact-range">
+                                    <input id="watermarkMarginInput" type="range" min="0" max="300" step="5" value="48">
+                                    <output id="watermarkMarginOutput">48 px</output>
+                                </div>
+                            </label>
+                        </div>
+
+                        <fieldset class="setting-group watermark-position-fieldset">
+                            <legend class="setting-label">ตำแหน่งลายน้ำ</legend>
+                            <div class="watermark-position-grid">
+                                <label title="ซ้ายบน"><input type="radio" name="watermarkPosition" value="top-left"><span>↖</span></label>
+                                <label title="บนกลาง"><input type="radio" name="watermarkPosition" value="top-center"><span>↑</span></label>
+                                <label title="ขวาบน"><input type="radio" name="watermarkPosition" value="top-right"><span>↗</span></label>
+                                <label title="ซ้ายกลาง"><input type="radio" name="watermarkPosition" value="middle-left"><span>←</span></label>
+                                <label title="กึ่งกลาง"><input type="radio" name="watermarkPosition" value="middle-center"><span>●</span></label>
+                                <label title="ขวากลาง"><input type="radio" name="watermarkPosition" value="middle-right"><span>→</span></label>
+                                <label title="ซ้ายล่าง"><input type="radio" name="watermarkPosition" value="bottom-left"><span>↙</span></label>
+                                <label title="ล่างกลาง"><input type="radio" name="watermarkPosition" value="bottom-center"><span>↓</span></label>
+                                <label title="ขวาล่าง"><input type="radio" name="watermarkPosition" value="bottom-right" checked><span>↘</span></label>
+                            </div>
+                        </fieldset>
+                    </section>
+
+                    <section class="setting-card setting-card-output" aria-labelledby="output-title">
+                        <div class="card-heading">
+                            <span class="card-number">04</span>
                             <div>
                                 <h3 id="output-title">ไฟล์ส่งออก</h3>
                                 <p>เลือกรูปแบบ คุณภาพ และชื่อไฟล์</p>
@@ -205,7 +268,10 @@ $jsVersion = substr(hash_file('sha256', __DIR__ . '/assets/js/app.js'), 0, 16);
                         <p class="eyebrow">รูปภาพของคุณ</p>
                         <h2 id="results-title">พร้อมดูตัวอย่างและส่งออก</h2>
                     </div>
-                    <button class="button button-primary download-all" type="button" id="downloadAllButton" disabled>ดาวน์โหลดทั้งหมดเป็น ZIP</button>
+                    <div class="download-actions">
+                        <button class="button button-quiet download-images" type="button" id="downloadImagesButton" disabled>ดาวน์โหลดเป็นรูปแยก</button>
+                        <button class="button button-primary download-all" type="button" id="downloadAllButton" disabled>ดาวน์โหลดทั้งหมดเป็น ZIP</button>
+                    </div>
                 </div>
 
                 <div class="status-panel" aria-live="polite">

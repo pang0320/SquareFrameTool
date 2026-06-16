@@ -16,6 +16,10 @@
         backgroundColor: '#ffffff',
         padding: 0,
         alignment: 'middle-center',
+        watermarkOpacity: 0.7,
+        watermarkSize: 18,
+        watermarkMargin: 48,
+        watermarkPosition: 'bottom-right',
         prefix: '',
         suffix: '-1x1',
         sort: 'added',
@@ -28,6 +32,13 @@
         noticeText: '',
         rerenderTimer: null,
         previewGeneration: 0,
+        watermark: {
+            file: null,
+            image: null,
+            width: 0,
+            height: 0,
+            previewUrl: '',
+        },
     };
 
     const elements = {
@@ -36,6 +47,7 @@
         chooseFilesButton: document.getElementById('chooseFilesButton'),
         clearAllButton: document.getElementById('clearAllButton'),
         downloadAllButton: document.getElementById('downloadAllButton'),
+        downloadImagesButton: document.getElementById('downloadImagesButton'),
         gallery: document.getElementById('gallery'),
         template: document.getElementById('imageCardTemplate'),
         formatSelect: document.getElementById('formatSelect'),
@@ -52,7 +64,19 @@
         fileSuffixInput: document.getElementById('fileSuffixInput'),
         sortSelect: document.getElementById('sortSelect'),
         resetSettingsButton: document.getElementById('resetSettingsButton'),
+        watermarkFileInput: document.getElementById('watermarkFileInput'),
+        chooseWatermarkButton: document.getElementById('chooseWatermarkButton'),
+        removeWatermarkButton: document.getElementById('removeWatermarkButton'),
+        watermarkStatus: document.getElementById('watermarkStatus'),
+        watermarkPreviewImage: document.getElementById('watermarkPreviewImage'),
+        watermarkOpacityInput: document.getElementById('watermarkOpacityInput'),
+        watermarkOpacityOutput: document.getElementById('watermarkOpacityOutput'),
+        watermarkSizeInput: document.getElementById('watermarkSizeInput'),
+        watermarkSizeOutput: document.getElementById('watermarkSizeOutput'),
+        watermarkMarginInput: document.getElementById('watermarkMarginInput'),
+        watermarkMarginOutput: document.getElementById('watermarkMarginOutput'),
         alignmentInputs: Array.from(document.querySelectorAll('input[name="alignment"]')),
+        watermarkPositionInputs: Array.from(document.querySelectorAll('input[name="watermarkPosition"]')),
         colorSwatches: Array.from(document.querySelectorAll('.color-swatch')),
     };
 
@@ -65,6 +89,7 @@
     });
     elements.clearAllButton.addEventListener('click', clearAll);
     elements.downloadAllButton.addEventListener('click', downloadAll);
+    elements.downloadImagesButton.addEventListener('click', downloadAllImages);
     elements.formatSelect.addEventListener('change', () => {
         updateQualityState();
         refreshFileNames();
@@ -102,6 +127,27 @@
             rerenderAll();
         });
     });
+    if (elements.chooseWatermarkButton) {
+        elements.chooseWatermarkButton.addEventListener('click', () => elements.watermarkFileInput.click());
+        elements.watermarkFileInput.addEventListener('change', async () => {
+            await setWatermarkFile(elements.watermarkFileInput.files[0] || null);
+            elements.watermarkFileInput.value = '';
+        });
+        elements.removeWatermarkButton.addEventListener('click', removeWatermark);
+        elements.watermarkOpacityInput.addEventListener('input', () => {
+            updateWatermarkOutputs();
+            scheduleRerender();
+        });
+        elements.watermarkSizeInput.addEventListener('input', () => {
+            updateWatermarkOutputs();
+            scheduleRerender();
+        });
+        elements.watermarkMarginInput.addEventListener('input', () => {
+            updateWatermarkOutputs();
+            scheduleRerender();
+        });
+        elements.watermarkPositionInputs.forEach((input) => input.addEventListener('change', rerenderAll));
+    }
     elements.filePrefixInput.addEventListener('input', refreshFileNames);
     elements.fileSuffixInput.addEventListener('input', refreshFileNames);
     elements.sortSelect.addEventListener('change', sortItems);
@@ -259,6 +305,73 @@
         });
     }
 
+    async function setWatermarkFile(file) {
+        if (!file) {
+            return;
+        }
+
+        if (!validateImageFile(file)) {
+            updateWatermarkUi();
+            return;
+        }
+
+        try {
+            const image = await loadImage(file);
+            const width = image.naturalWidth || image.width;
+            const height = image.naturalHeight || image.height;
+
+            releaseWatermark();
+            state.watermark.file = file;
+            state.watermark.image = image;
+            state.watermark.width = width;
+            state.watermark.height = height;
+            state.watermark.previewUrl = URL.createObjectURL(file);
+            updateWatermarkUi();
+            await rerenderAll();
+        } catch (error) {
+            console.error(error);
+            alert(`ไม่สามารถอ่านไฟล์ลายน้ำ "${file.name}" ได้`);
+        }
+    }
+
+    async function removeWatermark() {
+        releaseWatermark();
+        updateWatermarkUi();
+        await rerenderAll();
+    }
+
+    function releaseWatermark() {
+        releaseImage(state.watermark.image);
+        if (state.watermark.previewUrl) {
+            URL.revokeObjectURL(state.watermark.previewUrl);
+        }
+
+        state.watermark.file = null;
+        state.watermark.image = null;
+        state.watermark.width = 0;
+        state.watermark.height = 0;
+        state.watermark.previewUrl = '';
+    }
+
+    function updateWatermarkUi() {
+        if (!elements.watermarkStatus) {
+            return;
+        }
+
+        const hasWatermark = Boolean(state.watermark.image);
+        elements.watermarkStatus.textContent = hasWatermark
+            ? `${state.watermark.file.name} · ${state.watermark.width} x ${state.watermark.height}px`
+            : 'ยังไม่ได้เลือกลายน้ำ';
+        elements.removeWatermarkButton.hidden = !hasWatermark;
+        elements.watermarkPreviewImage.hidden = !hasWatermark;
+
+        if (hasWatermark) {
+            elements.watermarkPreviewImage.src = state.watermark.previewUrl;
+        } else {
+            elements.watermarkPreviewImage.removeAttribute('src');
+        }
+    }
+
     async function createPreviewImage(sourceImage, width, height) {
         const scale = Math.min(1, PREVIEW_MAX_SIZE / Math.max(width, height));
         if (scale === 1) {
@@ -336,6 +449,7 @@
         context.fillStyle = getBackgroundColor();
         context.fillRect(0, 0, size, size);
         drawRotatedImage(context, item, position.x, position.y, dimensions);
+        drawWatermark(context, size);
 
         item.lastFileName = buildOutputName(item.file.name, getOutputType());
         item.outputSizeElement.textContent = `${size} x ${size}px`;
@@ -355,6 +469,7 @@
             context.fillStyle = getBackgroundColor();
             context.fillRect(0, 0, size, size);
             drawRotatedImage(context, item, position.x, position.y, dimensions, sourceImage);
+            drawWatermark(context, size);
             return await canvasToBlob(canvas, getOutputType(), getOutputQuality());
         } finally {
             releaseImage(sourceImage);
@@ -418,6 +533,46 @@
 
         context.drawImage(sourceImage, 0, 0, item.width, item.height);
         context.restore();
+    }
+
+    function drawWatermark(context, canvasSize) {
+        const watermark = state.watermark;
+        if (!watermark.image || watermark.width <= 0 || watermark.height <= 0) {
+            return;
+        }
+
+        const maxTargetWidth = Math.max(1, Math.round(canvasSize * (getWatermarkSize() / 100)));
+        const aspectRatio = watermark.height / watermark.width;
+        let targetWidth = maxTargetWidth;
+        let targetHeight = Math.max(1, Math.round(targetWidth * aspectRatio));
+
+        if (targetHeight > canvasSize) {
+            targetHeight = canvasSize;
+            targetWidth = Math.max(1, Math.round(targetHeight / aspectRatio));
+        }
+
+        const margin = Math.min(getWatermarkMargin(), Math.max(0, Math.floor((canvasSize - Math.max(targetWidth, targetHeight)) / 2)));
+        const position = calculateWatermarkPosition(canvasSize, targetWidth, targetHeight, margin);
+
+        context.save();
+        context.globalAlpha = getWatermarkOpacity();
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+        context.drawImage(watermark.image, position.x, position.y, targetWidth, targetHeight);
+        context.restore();
+    }
+
+    function calculateWatermarkPosition(canvasSize, width, height, margin) {
+        const alignment = getWatermarkPosition().split('-');
+        const verticalFactor = alignment[0] === 'top' ? 0 : (alignment[0] === 'bottom' ? 1 : 0.5);
+        const horizontalFactor = alignment[1] === 'left' ? 0 : (alignment[1] === 'right' ? 1 : 0.5);
+        const availableWidth = Math.max(0, canvasSize - (margin * 2) - width);
+        const availableHeight = Math.max(0, canvasSize - (margin * 2) - height);
+
+        return {
+            x: margin + Math.round(availableWidth * horizontalFactor),
+            y: margin + Math.round(availableHeight * verticalFactor),
+        };
     }
 
     async function rerenderAll() {
@@ -515,6 +670,36 @@
         return Number.isFinite(padding) ? Math.max(0, Math.min(500, padding)) : 0;
     }
 
+    function getWatermarkOpacity() {
+        return getBoundedNumber(elements.watermarkOpacityInput, DEFAULT_SETTINGS.watermarkOpacity, 0.1, 1);
+    }
+
+    function getWatermarkSize() {
+        return getBoundedNumber(elements.watermarkSizeInput, DEFAULT_SETTINGS.watermarkSize, 5, 45);
+    }
+
+    function getWatermarkMargin() {
+        return Math.round(getBoundedNumber(elements.watermarkMarginInput, DEFAULT_SETTINGS.watermarkMargin, 0, 300));
+    }
+
+    function getWatermarkPosition() {
+        const selected = elements.watermarkPositionInputs.find((input) => input.checked);
+        return selected ? selected.value : DEFAULT_SETTINGS.watermarkPosition;
+    }
+
+    function getBoundedNumber(input, fallback, min, max) {
+        if (!input) {
+            return fallback;
+        }
+
+        const value = Number(input.value);
+        if (!Number.isFinite(value)) {
+            return fallback;
+        }
+
+        return Math.max(min, Math.min(max, value));
+    }
+
     function getAlignment() {
         const selected = elements.alignmentInputs.find((input) => input.checked);
         return selected ? selected.value : DEFAULT_SETTINGS.alignment;
@@ -608,6 +793,74 @@
         }
     }
 
+    async function downloadAllImages() {
+        if (state.items.length === 0) {
+            return;
+        }
+
+        const directoryHandle = await requestDirectoryHandle();
+        if (directoryHandle === false) {
+            return;
+        }
+
+        hideManualDownload();
+        setBusy(true);
+
+        try {
+            const exportedFiles = await exportImageFiles((completedExports) => {
+                elements.summaryText.textContent = `กำลังส่งออกรูปแยก ${completedExports}/${state.items.length} รูป`;
+            });
+
+            if (directoryHandle) {
+                for (const file of exportedFiles) {
+                    await saveBlobToDirectory(directoryHandle, file.name, file.blob);
+                }
+
+                state.noticeText = `บันทึกรูปแยก ${exportedFiles.length} ไฟล์ลงโฟลเดอร์ที่เลือกแล้ว`;
+                elements.detailText.textContent = state.noticeText;
+                return;
+            }
+
+            for (const file of exportedFiles) {
+                triggerDownload(file.blob, file.name, false);
+                await wait(120);
+            }
+
+            state.noticeText = `เริ่มดาวน์โหลดรูปแยก ${exportedFiles.length} ไฟล์แล้ว`;
+            elements.detailText.textContent = state.noticeText;
+        } catch (error) {
+            handleDownloadError(error);
+        } finally {
+            setBusy(false);
+            updateStatus();
+        }
+    }
+
+    async function exportImageFiles(onProgress) {
+        const nameCounts = new Map();
+        let completedExports = 0;
+        const exportedItems = await mapWithConcurrency(
+            state.items,
+            IMAGE_EXPORT_CONCURRENCY,
+            async (item) => {
+                const blob = await createExportBlob(item);
+                completedExports += 1;
+                if (typeof onProgress === 'function') {
+                    onProgress(completedExports);
+                }
+                return { item, blob };
+            }
+        );
+
+        return exportedItems.map((exported) => {
+            const currentFileName = buildOutputName(exported.item.file.name, getOutputType());
+            return {
+                name: uniqueFileName(currentFileName, nameCounts),
+                blob: exported.blob,
+            };
+        });
+    }
+
     function uniqueFileName(fileName, counts) {
         const count = counts.get(fileName) || 0;
         counts.set(fileName, count + 1);
@@ -643,6 +896,33 @@
 
             throw error;
         }
+    }
+
+    async function requestDirectoryHandle() {
+        if (typeof window.showDirectoryPicker !== 'function') {
+            return null;
+        }
+
+        try {
+            return await window.showDirectoryPicker({
+                id: 'square-frame-exports',
+                mode: 'readwrite',
+                startIn: 'downloads',
+            });
+        } catch (error) {
+            if (error && error.name === 'AbortError') {
+                return false;
+            }
+
+            throw error;
+        }
+    }
+
+    async function saveBlobToDirectory(directoryHandle, fileName, blob) {
+        const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
     }
 
     async function saveBlob(blob, fileName, saveHandle, keepManualLink) {
@@ -729,6 +1009,10 @@
         window.setTimeout(() => URL.revokeObjectURL(url), 30000);
     }
 
+    function wait(milliseconds) {
+        return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+    }
+
     function showManualDownload(url, fileName) {
         if (state.manualDownloadUrl) {
             URL.revokeObjectURL(state.manualDownloadUrl);
@@ -780,6 +1064,16 @@
         });
     }
 
+    function updateWatermarkOutputs() {
+        if (!elements.watermarkOpacityOutput) {
+            return;
+        }
+
+        elements.watermarkOpacityOutput.textContent = `${Math.round(getWatermarkOpacity() * 100)}%`;
+        elements.watermarkSizeOutput.textContent = `${Math.round(getWatermarkSize())}%`;
+        elements.watermarkMarginOutput.textContent = `${getWatermarkMargin()} px`;
+    }
+
     function updateQualityState() {
         const isLosslessPng = getOutputType() === 'image/png';
         elements.qualityInput.disabled = isLosslessPng;
@@ -804,6 +1098,17 @@
         setBackgroundColor(DEFAULT_SETTINGS.backgroundColor);
         elements.paddingInput.value = String(DEFAULT_SETTINGS.padding);
         elements.paddingOutput.textContent = `${DEFAULT_SETTINGS.padding} px`;
+        if (elements.watermarkOpacityInput) {
+            elements.watermarkOpacityInput.value = String(DEFAULT_SETTINGS.watermarkOpacity);
+            elements.watermarkSizeInput.value = String(DEFAULT_SETTINGS.watermarkSize);
+            elements.watermarkMarginInput.value = String(DEFAULT_SETTINGS.watermarkMargin);
+            elements.watermarkPositionInputs.forEach((input) => {
+                input.checked = input.value === DEFAULT_SETTINGS.watermarkPosition;
+            });
+            updateWatermarkOutputs();
+            releaseWatermark();
+            updateWatermarkUi();
+        }
         elements.filePrefixInput.value = DEFAULT_SETTINGS.prefix;
         elements.fileSuffixInput.value = DEFAULT_SETTINGS.suffix;
         elements.sortSelect.value = DEFAULT_SETTINGS.sort;
@@ -851,6 +1156,7 @@
         const count = state.items.length;
         elements.clearAllButton.disabled = count === 0;
         elements.downloadAllButton.disabled = count === 0;
+        elements.downloadImagesButton.disabled = count === 0;
 
         if (count === 0) {
             hideManualDownload();
@@ -866,6 +1172,7 @@
 
     function setBusy(isBusy) {
         elements.downloadAllButton.disabled = isBusy || state.items.length === 0;
+        elements.downloadImagesButton.disabled = isBusy || state.items.length === 0;
         elements.clearAllButton.disabled = isBusy || state.items.length === 0;
         elements.chooseFilesButton.disabled = isBusy;
         elements.formatSelect.disabled = isBusy;
@@ -1002,6 +1309,8 @@
     }
 
     updateSelectedSwatch();
+    updateWatermarkOutputs();
+    updateWatermarkUi();
     updateQualityState();
     updateStatus();
 })();
