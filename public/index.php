@@ -10,6 +10,8 @@ if (empty($_SESSION['csrf_token'])) {
 $csrfToken = (string) $_SESSION['csrf_token'];
 $cssVersion = substr(hash_file('sha256', __DIR__ . '/assets/css/app.css'), 0, 16);
 $jsVersion = substr(hash_file('sha256', __DIR__ . '/assets/js/app.js'), 0, 16);
+$sweetAlertCssVersion = substr(hash_file('sha256', __DIR__ . '/assets/vendor/sweetalert2/sweetalert2.min.css'), 0, 16);
+$sweetAlertJsVersion = substr(hash_file('sha256', __DIR__ . '/assets/vendor/sweetalert2/sweetalert2.all.min.js'), 0, 16);
 ?>
 <!doctype html>
 <html lang="th">
@@ -22,6 +24,7 @@ $jsVersion = substr(hash_file('sha256', __DIR__ . '/assets/js/app.js'), 0, 16);
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="apple-touch-icon" href="favicon.svg">
     <title><?= e($appName); ?></title>
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/sweetalert2.min.css?v=<?= e($sweetAlertCssVersion); ?>">
     <link rel="stylesheet" href="assets/css/app.css?v=<?= e($cssVersion); ?>">
 </head>
 <body>
@@ -317,6 +320,7 @@ $jsVersion = substr(hash_file('sha256', __DIR__ . '/assets/js/app.js'), 0, 16);
         </article>
     </template>
 
+    <script src="assets/vendor/sweetalert2/sweetalert2.all.min.js?v=<?= e($sweetAlertJsVersion); ?>" defer></script>
     <script src="assets/js/app.js?v=<?= e($jsVersion); ?>" defer></script>
 </body>
 </html>

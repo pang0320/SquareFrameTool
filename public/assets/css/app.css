@@ -1166,3 +1166,47 @@ input[type="range"] {
         transition-duration: 0.01ms !important;
     }
 }
+
+.duplicate-file-toast.swal2-popup {
+    background: #111111;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+    color: #ffffff;
+    overflow: hidden;
+    padding: 18px 20px;
+    width: min(430px, calc(100vw - 24px));
+}
+
+.duplicate-file-toast .swal2-icon {
+    border-color: #f5c451;
+    color: #f5c451;
+    margin: 0 10px 0 0;
+}
+
+.duplicate-file-toast-title.swal2-title {
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 750;
+    line-height: 1.35;
+    letter-spacing: 0;
+    margin: 0;
+    padding: 0;
+    text-align: left;
+}
+
+.duplicate-file-toast-text.swal2-html-container {
+    color: rgba(255, 255, 255, 0.76);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 4px 0 0;
+    max-width: 300px;
+    overflow-wrap: anywhere;
+    padding: 0;
+    text-align: left;
+}
+
+.duplicate-file-toast-progress.swal2-timer-progress-bar {
+    background: linear-gradient(90deg, #f5c451, #ffffff);
+    height: 3px;
+}

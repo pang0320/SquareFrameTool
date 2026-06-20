@@ -63,7 +63,7 @@ function e(string $value): string
 
 function send_security_headers(): void
 {
-    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
     header('Strict-Transport-Security: max-age=31536000; includeSubDomains; preload');
     header('X-Frame-Options: DENY');
     header('X-Content-Type-Options: nosniff');

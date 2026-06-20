@@ -27,6 +27,7 @@
 
     const state = {
         items: [],
+        fileKeys: new Set(),
         nextId: 1,
         manualDownloadUrl: '',
         noticeText: '',
@@ -187,15 +188,21 @@
         setBusy(true);
 
         try {
+            const newFiles = await filterNewImageFiles(validFiles);
+
+            if (newFiles.length === 0) {
+                return;
+            }
+
             const decodedImages = await mapWithConcurrency(
-                validFiles,
+                newFiles,
                 IMAGE_DECODE_CONCURRENCY,
                 decodeImageFile
             );
 
             for (const decoded of decodedImages) {
                 if (decoded) {
-                    addImage(decoded.file, decoded.image, decoded.width, decoded.height);
+                    addImage(decoded.file, decoded.fileKey, decoded.image, decoded.width, decoded.height);
                 }
             }
         } finally {
@@ -219,7 +226,97 @@
         return true;
     }
 
-    async function decodeImageFile(file) {
+    async function filterNewImageFiles(files) {
+        const newFiles = [];
+        const batchKeys = new Set();
+        const duplicateNames = [];
+
+        for (const file of files) {
+            const fileKey = await createFileKey(file);
+            if (state.fileKeys.has(fileKey) || batchKeys.has(fileKey)) {
+                duplicateNames.push(file.name);
+                continue;
+            }
+
+            batchKeys.add(fileKey);
+            newFiles.push({ file, fileKey });
+        }
+
+        if (duplicateNames.length > 0) {
+            showDuplicateWarning(duplicateNames);
+        }
+
+        return newFiles;
+    }
+
+    async function createFileKey(file) {
+        if (window.crypto && window.crypto.subtle && typeof file.arrayBuffer === 'function') {
+            try {
+                const buffer = await file.arrayBuffer();
+                const digest = await window.crypto.subtle.digest('SHA-256', buffer);
+                return `sha256:${bytesToHex(new Uint8Array(digest))}:${file.size}`;
+            } catch (error) {
+                console.warn('Cannot hash file; falling back to metadata key.', error);
+            }
+        }
+
+        return [
+            'meta',
+            normalizeFileKeyPart(file.name),
+            String(file.size),
+            String(file.lastModified || 0),
+            normalizeFileKeyPart(file.type),
+        ].join(':');
+    }
+
+    function bytesToHex(bytes) {
+        return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    function normalizeFileKeyPart(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function showDuplicateWarning(fileNames) {
+        const uniqueNames = Array.from(new Set(fileNames));
+        const visibleNames = uniqueNames.slice(0, 5).map((name) => `"${name}"`).join(', ');
+        const hiddenCount = Math.max(0, uniqueNames.length - 5);
+        const suffix = hiddenCount > 0 ? ` และอีก ${hiddenCount} ไฟล์` : '';
+        const title = `ข้ามไฟล์ซ้ำ ${fileNames.length} ไฟล์`;
+        const message = `${visibleNames}${suffix}`;
+        const notice = `${title}: ${message}`;
+
+        state.noticeText = notice;
+
+        if (window.Swal && typeof window.Swal.fire === 'function') {
+            window.Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'warning',
+                title,
+                text: message,
+                showConfirmButton: false,
+                timer: 3800,
+                timerProgressBar: true,
+                customClass: {
+                    popup: 'duplicate-file-toast',
+                    title: 'duplicate-file-toast-title',
+                    htmlContainer: 'duplicate-file-toast-text',
+                    timerProgressBar: 'duplicate-file-toast-progress',
+                },
+                didOpen: (toast) => {
+                    toast.addEventListener('mouseenter', window.Swal.stopTimer);
+                    toast.addEventListener('mouseleave', window.Swal.resumeTimer);
+                },
+            });
+            return;
+        }
+
+        alert(notice);
+    }
+
+    async function decodeImageFile(fileEntry) {
+        const file = fileEntry.file;
         try {
             const sourceImage = await loadImage(file);
             const width = sourceImage.naturalWidth || sourceImage.width;
@@ -232,6 +329,7 @@
 
             return {
                 file,
+                fileKey: fileEntry.fileKey,
                 image: previewImage,
                 width,
                 height,
@@ -260,10 +358,11 @@
         return results;
     }
 
-    function addImage(file, image, width, height) {
+    function addImage(file, fileKey, image, width, height) {
         const item = {
             id: state.nextId,
             file,
+            fileKey,
             image,
             width,
             height,
@@ -275,6 +374,7 @@
             lastFileName: '',
         };
         state.nextId += 1;
+        state.fileKeys.add(fileKey);
         state.items.push(item);
         renderCard(item);
         renderPreview(item);
@@ -1131,6 +1231,7 @@
         }
 
         const [item] = state.items.splice(index, 1);
+        state.fileKeys.delete(item.fileKey);
         releaseImage(item.image);
         item.element.remove();
         hideManualDownload();
@@ -1141,6 +1242,7 @@
         state.previewGeneration += 1;
         state.items.forEach((item) => releaseImage(item.image));
         state.items.splice(0, state.items.length);
+        state.fileKeys.clear();
         elements.gallery.textContent = '';
         hideManualDownload();
         updateStatus();
