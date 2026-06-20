@@ -28,3 +28,7 @@ php -S 127.0.0.1:8000 -t public
 - `public/index.php` หน้าเว็บหลัก
 - `public/assets/css/app.css` สไตล์
 - `public/assets/js/app.js` logic แปลงรูปและสร้าง ZIP
+
+## ความปลอดภัย
+
+- ดูรายละเอียดการออกแบบตาม CIA Triad ได้ที่ `SECURITY_DESIGN.md`
