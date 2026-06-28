@@ -12,9 +12,16 @@
         'image/jpeg': 'jpg',
         'image/webp': 'webp',
     };
+    const ASPECT_RATIOS = {
+        '1:1': { width: 1, height: 1 },
+        '4:5': { width: 4, height: 5 },
+        '9:16': { width: 9, height: 16 },
+        '16:9': { width: 16, height: 9 },
+    };
     const DEFAULT_SETTINGS = {
         backgroundColor: '#ffffff',
         padding: 0,
+        aspectRatio: '1:1',
         alignment: 'middle-center',
         watermarkOpacity: 0.7,
         watermarkSize: 18,
@@ -76,6 +83,7 @@
         watermarkSizeOutput: document.getElementById('watermarkSizeOutput'),
         watermarkMarginInput: document.getElementById('watermarkMarginInput'),
         watermarkMarginOutput: document.getElementById('watermarkMarginOutput'),
+        aspectInputs: Array.from(document.querySelectorAll('input[name="aspectRatio"]')),
         alignmentInputs: Array.from(document.querySelectorAll('input[name="alignment"]')),
         watermarkPositionInputs: Array.from(document.querySelectorAll('input[name="watermarkPosition"]')),
         colorSwatches: Array.from(document.querySelectorAll('.color-swatch')),
@@ -121,6 +129,7 @@
         elements.paddingOutput.textContent = `${getPadding()} px`;
         scheduleRerender();
     });
+    elements.aspectInputs.forEach((input) => input.addEventListener('change', rerenderAll));
     elements.alignmentInputs.forEach((input) => input.addEventListener('change', rerenderAll));
     elements.colorSwatches.forEach((button) => {
         button.addEventListener('click', () => {
@@ -367,6 +376,8 @@
             width,
             height,
             outputSize: Math.max(width, height),
+            outputWidth: Math.max(width, height),
+            outputHeight: Math.max(width, height),
             rotation: 0,
             element: null,
             canvas: null,
@@ -518,7 +529,7 @@
         name.textContent = item.file.name;
         name.title = item.file.name;
         originalSize.textContent = `${item.width} x ${item.height}px`;
-        outputSize.textContent = `${item.outputSize} x ${item.outputSize}px`;
+        outputSize.textContent = `${item.outputWidth} x ${item.outputHeight}px`;
         downloadButton.addEventListener('click', () => downloadOne(item));
         removeButton.addEventListener('click', () => removeItem(item.id));
         rotateLeftButton.addEventListener('click', () => rotateItem(item, -90));
@@ -534,42 +545,58 @@
         const canvas = item.canvas;
         const padding = getPadding();
         const dimensions = getRotatedDimensions(item);
-        const size = Math.max(dimensions.width, dimensions.height) + (padding * 2);
-        const position = calculateImagePosition(size, dimensions.width, dimensions.height, padding);
-        const scale = Math.min(1, PREVIEW_MAX_SIZE / size);
-        const previewSize = Math.max(1, Math.round(size * scale));
+        const outputDimensions = calculateOutputDimensions(dimensions.width, dimensions.height, padding);
+        const position = calculateImagePosition(
+            outputDimensions.width,
+            outputDimensions.height,
+            dimensions.width,
+            dimensions.height,
+            padding
+        );
+        const longestSide = Math.max(outputDimensions.width, outputDimensions.height);
+        const scale = Math.min(1, PREVIEW_MAX_SIZE / longestSide);
+        const previewWidth = Math.max(1, Math.round(outputDimensions.width * scale));
+        const previewHeight = Math.max(1, Math.round(outputDimensions.height * scale));
         const context = canvas.getContext('2d', { alpha: false });
 
-        item.outputSize = size;
-        canvas.width = previewSize;
-        canvas.height = previewSize;
+        item.outputWidth = outputDimensions.width;
+        item.outputHeight = outputDimensions.height;
+        item.outputSize = Math.max(outputDimensions.width, outputDimensions.height);
+        canvas.width = previewWidth;
+        canvas.height = previewHeight;
         context.setTransform(scale, 0, 0, scale, 0, 0);
         context.imageSmoothingEnabled = scale < 1;
         context.imageSmoothingQuality = 'high';
         context.fillStyle = getBackgroundColor();
-        context.fillRect(0, 0, size, size);
+        context.fillRect(0, 0, outputDimensions.width, outputDimensions.height);
         drawRotatedImage(context, item, position.x, position.y, dimensions);
-        drawWatermark(context, size);
+        drawWatermark(context, outputDimensions.width, outputDimensions.height);
 
         item.lastFileName = buildOutputName(item.file.name, getOutputType());
-        item.outputSizeElement.textContent = `${size} x ${size}px`;
+        item.outputSizeElement.textContent = `${outputDimensions.width} x ${outputDimensions.height}px`;
     }
 
     async function createExportBlob(item) {
         const padding = getPadding();
         const dimensions = getRotatedDimensions(item);
-        const size = Math.max(dimensions.width, dimensions.height) + (padding * 2);
-        const position = calculateImagePosition(size, dimensions.width, dimensions.height, padding);
-        const canvas = createExportCanvas(size);
+        const outputDimensions = calculateOutputDimensions(dimensions.width, dimensions.height, padding);
+        const position = calculateImagePosition(
+            outputDimensions.width,
+            outputDimensions.height,
+            dimensions.width,
+            dimensions.height,
+            padding
+        );
+        const canvas = createExportCanvas(outputDimensions.width, outputDimensions.height);
         const context = canvas.getContext('2d', { alpha: false });
         const sourceImage = await loadImage(item.file);
 
         try {
             context.imageSmoothingEnabled = false;
             context.fillStyle = getBackgroundColor();
-            context.fillRect(0, 0, size, size);
+            context.fillRect(0, 0, outputDimensions.width, outputDimensions.height);
             drawRotatedImage(context, item, position.x, position.y, dimensions, sourceImage);
-            drawWatermark(context, size);
+            drawWatermark(context, outputDimensions.width, outputDimensions.height);
             return await canvasToBlob(canvas, getOutputType(), getOutputQuality());
         } finally {
             releaseImage(sourceImage);
@@ -577,14 +604,14 @@
         }
     }
 
-    function createExportCanvas(size) {
+    function createExportCanvas(width, height) {
         if (typeof window.OffscreenCanvas === 'function') {
-            return new OffscreenCanvas(size, size);
+            return new OffscreenCanvas(width, height);
         }
 
         const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
+        canvas.width = width;
+        canvas.height = height;
         return canvas;
     }
 
@@ -603,12 +630,31 @@
         };
     }
 
-    function calculateImagePosition(size, width, height, padding) {
+    function calculateOutputDimensions(imageWidth, imageHeight, padding) {
+        const aspectRatio = ASPECT_RATIOS[getAspectRatio()] || ASPECT_RATIOS[DEFAULT_SETTINGS.aspectRatio];
+        const minimumWidth = imageWidth + (padding * 2);
+        const minimumHeight = imageHeight + (padding * 2);
+        const ratio = aspectRatio.width / aspectRatio.height;
+        let outputWidth = minimumWidth;
+        let outputHeight = Math.round(outputWidth / ratio);
+
+        if (outputHeight < minimumHeight) {
+            outputHeight = minimumHeight;
+            outputWidth = Math.round(outputHeight * ratio);
+        }
+
+        return {
+            width: Math.max(1, outputWidth),
+            height: Math.max(1, outputHeight),
+        };
+    }
+
+    function calculateImagePosition(canvasWidth, canvasHeight, width, height, padding) {
         const alignment = getAlignment().split('-');
         const verticalFactor = alignment[0] === 'top' ? 0 : (alignment[0] === 'bottom' ? 1 : 0.5);
         const horizontalFactor = alignment[1] === 'left' ? 0 : (alignment[1] === 'right' ? 1 : 0.5);
-        const availableWidth = Math.max(0, size - (padding * 2) - width);
-        const availableHeight = Math.max(0, size - (padding * 2) - height);
+        const availableWidth = Math.max(0, canvasWidth - (padding * 2) - width);
+        const availableHeight = Math.max(0, canvasHeight - (padding * 2) - height);
 
         return {
             x: padding + Math.round(availableWidth * horizontalFactor),
@@ -635,24 +681,26 @@
         context.restore();
     }
 
-    function drawWatermark(context, canvasSize) {
+    function drawWatermark(context, canvasWidth, canvasHeight) {
         const watermark = state.watermark;
         if (!watermark.image || watermark.width <= 0 || watermark.height <= 0) {
             return;
         }
 
-        const maxTargetWidth = Math.max(1, Math.round(canvasSize * (getWatermarkSize() / 100)));
+        const shortestSide = Math.min(canvasWidth, canvasHeight);
+        const maxTargetWidth = Math.max(1, Math.round(shortestSide * (getWatermarkSize() / 100)));
         const aspectRatio = watermark.height / watermark.width;
         let targetWidth = maxTargetWidth;
         let targetHeight = Math.max(1, Math.round(targetWidth * aspectRatio));
 
-        if (targetHeight > canvasSize) {
-            targetHeight = canvasSize;
+        if (targetHeight > canvasHeight) {
+            targetHeight = canvasHeight;
             targetWidth = Math.max(1, Math.round(targetHeight / aspectRatio));
         }
 
-        const margin = Math.min(getWatermarkMargin(), Math.max(0, Math.floor((canvasSize - Math.max(targetWidth, targetHeight)) / 2)));
-        const position = calculateWatermarkPosition(canvasSize, targetWidth, targetHeight, margin);
+        const marginLimit = Math.max(0, Math.floor((shortestSide - Math.max(targetWidth, targetHeight)) / 2));
+        const margin = Math.min(getWatermarkMargin(), marginLimit);
+        const position = calculateWatermarkPosition(canvasWidth, canvasHeight, targetWidth, targetHeight, margin);
 
         context.save();
         context.globalAlpha = getWatermarkOpacity();
@@ -662,12 +710,12 @@
         context.restore();
     }
 
-    function calculateWatermarkPosition(canvasSize, width, height, margin) {
+    function calculateWatermarkPosition(canvasWidth, canvasHeight, width, height, margin) {
         const alignment = getWatermarkPosition().split('-');
         const verticalFactor = alignment[0] === 'top' ? 0 : (alignment[0] === 'bottom' ? 1 : 0.5);
         const horizontalFactor = alignment[1] === 'left' ? 0 : (alignment[1] === 'right' ? 1 : 0.5);
-        const availableWidth = Math.max(0, canvasSize - (margin * 2) - width);
-        const availableHeight = Math.max(0, canvasSize - (margin * 2) - height);
+        const availableWidth = Math.max(0, canvasWidth - (margin * 2) - width);
+        const availableHeight = Math.max(0, canvasHeight - (margin * 2) - height);
 
         return {
             x: margin + Math.round(availableWidth * horizontalFactor),
@@ -744,6 +792,11 @@
 
     function getBackgroundColor() {
         return elements.backgroundColorInput.value || DEFAULT_SETTINGS.backgroundColor;
+    }
+
+    function getAspectRatio() {
+        const selected = elements.aspectInputs.find((input) => input.checked);
+        return selected && ASPECT_RATIOS[selected.value] ? selected.value : DEFAULT_SETTINGS.aspectRatio;
     }
 
     function normalizeHexColor(value) {
@@ -1198,6 +1251,9 @@
         setBackgroundColor(DEFAULT_SETTINGS.backgroundColor);
         elements.paddingInput.value = String(DEFAULT_SETTINGS.padding);
         elements.paddingOutput.textContent = `${DEFAULT_SETTINGS.padding} px`;
+        elements.aspectInputs.forEach((input) => {
+            input.checked = input.value === DEFAULT_SETTINGS.aspectRatio;
+        });
         if (elements.watermarkOpacityInput) {
             elements.watermarkOpacityInput.value = String(DEFAULT_SETTINGS.watermarkOpacity);
             elements.watermarkSizeInput.value = String(DEFAULT_SETTINGS.watermarkSize);
@@ -1263,11 +1319,11 @@
         if (count === 0) {
             hideManualDownload();
             elements.summaryText.textContent = 'ยังไม่มีรูปที่นำเข้า';
-            elements.detailText.textContent = 'ผลลัพธ์จะเป็นสี่เหลี่ยมจัตุรัส ขนาดเท่าด้านที่ยาวที่สุดของแต่ละรูป';
+            elements.detailText.textContent = 'เลือกสัดส่วนผลลัพธ์ได้ 1:1, 4:5, 9:16 หรือ 16:9 โดยคงพิกเซลภาพเดิม';
             return;
         }
 
-        const totalPixels = state.items.reduce((sum, item) => sum + item.outputSize * item.outputSize, 0);
+        const totalPixels = state.items.reduce((sum, item) => sum + (item.outputWidth * item.outputHeight), 0);
         elements.summaryText.textContent = `พร้อมส่งออก ${count} รูป`;
         elements.detailText.textContent = state.noticeText || `รวมพื้นที่ผลลัพธ์ ${totalPixels.toLocaleString('th-TH')} พิกเซล`;
     }

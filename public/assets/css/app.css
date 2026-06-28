@@ -493,6 +493,7 @@ a {
 .color-picker:focus-visible,
 .button:focus-visible,
 .nav-clear:focus-visible,
+.aspect-options input:focus-visible + span,
 .alignment-grid input:focus-visible + span,
 .watermark-position-grid input:focus-visible + span {
     border-color: var(--blue);
@@ -617,6 +618,49 @@ a {
 
 .color-swatch.is-selected {
     box-shadow: 0 0 0 2px var(--blue);
+}
+
+.aspect-fieldset {
+    border: 0;
+    padding: 0;
+}
+
+.aspect-options {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.aspect-options label {
+    position: relative;
+    min-width: 0;
+}
+
+.aspect-options input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.aspect-options span {
+    min-width: 0;
+    min-height: 34px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    background: #f5f5f7;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.aspect-options input:checked + span {
+    border-color: var(--blue);
+    background: #eaf4ff;
+    color: var(--blue);
 }
 
 .range-row {
@@ -904,6 +948,7 @@ input[type="range"] {
     height: 100%;
     display: block;
     background: #fff;
+    object-fit: contain;
 }
 
 .image-meta {

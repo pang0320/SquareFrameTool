@@ -47,7 +47,7 @@ $sweetAlertJsVersion = substr(hash_file('sha256', __DIR__ . '/assets/vendor/swee
         <header class="app-header">
             <p class="eyebrow">เครื่องมือจัดเฟรมภาพ</p>
             <h1 id="app-title">กรอบสี่เหลี่ยมที่พอดี<br><span>โดยไม่เสียความคมชัด</span></h1>
-            <p class="intro">เปลี่ยนรูปทุกขนาดให้เป็น 1:1 เติมพื้นที่ว่างด้วยสีที่คุณเลือก และส่งออกหลายรูปพร้อมกันด้วยความละเอียดต้นฉบับ</p>
+            <p class="intro">เปลี่ยนรูปทุกขนาดให้เป็น 1:1, 4:5, 9:16 หรือ 16:9 เติมพื้นที่ว่างด้วยสีที่คุณเลือก และส่งออกหลายรูปพร้อมกันด้วยความละเอียดต้นฉบับ</p>
         </header>
 
         <section class="workspace" aria-label="เครื่องมือแปลงรูป">
@@ -118,6 +118,16 @@ $sweetAlertJsVersion = substr(hash_file('sha256', __DIR__ . '/assets/vendor/swee
                                     </div>
                                 </div>
                             </div>
+
+                            <fieldset class="setting-group aspect-fieldset">
+                                <legend class="setting-label">สัดส่วนผลลัพธ์</legend>
+                                <div class="aspect-options">
+                                    <label title="เหมาะกับโพสต์จัตุรัส"><input type="radio" name="aspectRatio" value="1:1" checked><span>1:1</span></label>
+                                    <label title="เหมาะกับฟีดแนวตั้ง"><input type="radio" name="aspectRatio" value="4:5"><span>4:5</span></label>
+                                    <label title="เหมาะกับสตอรี่หรือรีล"><input type="radio" name="aspectRatio" value="9:16"><span>9:16</span></label>
+                                    <label title="เหมาะกับภาพแนวนอน"><input type="radio" name="aspectRatio" value="16:9"><span>16:9</span></label>
+                                </div>
+                            </fieldset>
 
                             <label class="setting-group setting-range">
                                 <span class="setting-label">ขอบเพิ่ม</span>
@@ -279,7 +289,7 @@ $sweetAlertJsVersion = substr(hash_file('sha256', __DIR__ . '/assets/vendor/swee
 
                 <div class="status-panel" aria-live="polite">
                     <strong id="summaryText">ยังไม่มีรูปที่นำเข้า</strong>
-                    <span id="detailText">ผลลัพธ์จะเป็นสี่เหลี่ยมจัตุรัส ขนาดเท่าด้านที่ยาวที่สุดของแต่ละรูป</span>
+                    <span id="detailText">เลือกสัดส่วนผลลัพธ์ได้ 1:1, 4:5, 9:16 หรือ 16:9 โดยคงพิกเซลภาพเดิม</span>
                     <a class="manual-download" id="manualDownloadLink" href="#" download hidden>บันทึกไฟล์ ZIP</a>
                 </div>
 
