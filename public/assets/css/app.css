@@ -853,6 +853,26 @@ input[type="range"] {
 
 .results-section {
     min-width: 0;
+    position: relative;
+    border-radius: 12px;
+}
+
+.results-section.is-dragging::after {
+    content: "ปล่อยรูปตรงนี้เพื่อเพิ่มเข้าโปรเจค";
+    position: absolute;
+    z-index: 8;
+    inset: -10px;
+    display: grid;
+    place-items: center;
+    border: 2px dashed var(--blue);
+    border-radius: 12px;
+    background: rgba(245, 245, 247, 0.88);
+    color: var(--blue);
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    pointer-events: none;
+    backdrop-filter: saturate(180%) blur(12px);
 }
 
 .download-all {
